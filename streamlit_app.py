@@ -40,7 +40,7 @@ MODEL_NAME = "deepseek-ai/DeepSeek-R1:novita"
 # Page Configuration
 # -------------------------------
 st.set_page_config(
-    page_title="AI BI Multi-Domain Assistant",
+    page_title="BI Multi-Domain Assistant",
     page_icon="📊",
     layout="wide"
 )
@@ -109,7 +109,7 @@ def run_ml_logic(domain_name, use_case, data):
 # Main Interface
 # -------------------------------
 st.title(f"AI Powered Business Intelligence Assistant")
-st.subheader(f"Generate data-driven insights for {domain} use cases")
+st.subheader(f"Get real-time data-driven insights for {domain} use cases")
 
 if uploaded_file and selected_use_case != "Select a use case":
     try:
