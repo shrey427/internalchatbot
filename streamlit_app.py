@@ -1,197 +1,181 @@
 import streamlit as st
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, IsolationForest
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import LabelEncoder
+from pandas.errors import EmptyDataError
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
-import plotly.express as px
+
+# Import ML models from your local folder structure
+from ml_models.sales_models import (
+    sales_forecasting, customer_segmentation, 
+    recommendation_system, price_optimization, anomaly_detection as sales_anomaly
+)
+from ml_models.finance_models import (
+    credit_risk_assessment, expense_budget_forecasting,
+    portfolio_optimization, invoice_anomaly_detection, financial_statement_analysis
+)
+from ml_models.hr_models import (
+    attrition_turnover_prediction, workforce_planning,
+    training_recommendation, salary_compensation_benchmarking
+)
 
 # -------------------------------
 # Environment & LLM Setup
 # -------------------------------
 load_dotenv()
+
 HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
-    raise ValueError("HF_TOKEN not found. Please set it as an environment variable.")
+    st.error("❌ HF_TOKEN not found in environment variables.")
+    st.stop()
 
-client = OpenAI(base_url="https://router.huggingface.co/v1", api_key=HF_TOKEN)
+client = OpenAI(
+    base_url="https://router.huggingface.co/v1",
+    api_key=HF_TOKEN,
+)
+
 MODEL_NAME = "deepseek-ai/DeepSeek-R1:novita"
 
 # -------------------------------
-# Page Config
+# Page Configuration
 # -------------------------------
 st.set_page_config(
-    page_title="AI-Powered BI Assistant",
+    page_title="AI BI Multi-Domain Assistant",
     page_icon="📊",
     layout="wide"
 )
 
 # -------------------------------
-# CSS for Professional UI
+# Sidebar – Domain & Use Case Controls
 # -------------------------------
-st.markdown("""
-<style>
-/* Chat boxes */
-.chat-box {
-    padding: 15px;
-    border-radius: 12px;
-    margin-bottom: 10px;
-    max-width: 80%;
-}
-.user { background-color: #0d6efd; color: white; margin-left: auto; text-align: right; }
-.bot { background-color: #198754; color: white; margin-right: auto; text-align: left; }
-
-/* Cards */
-.card {
-    padding: 20px;
-    border-radius: 15px;
-    background-color: #1f2937;
-    color: #f1f5f9;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-}
-
-/* Sidebar headers */
-.sidebar .stMarkdown h2 {
-    color: #0d6efd;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------------------
-# Sidebar: Upload + Use Case
-# -------------------------------
-st.sidebar.header("📁 Upload & Configure Analysis")
-
+st.sidebar.title("🏢 Business Department")
 domain = st.sidebar.selectbox("Select Domain", ["Sales", "Finance", "HR"])
-use_cases = {
-    "Sales": ["Sales Forecast", "Churn Prediction", "Customer Segmentation"],
-    "Finance": ["Fraud Detection", "Expense Forecast"],
-    "HR": ["Attrition Prediction", "Employee Segmentation"]
+
+st.sidebar.markdown("---")
+st.sidebar.subheader(f"📁 {domain} Data Upload")
+uploaded_file = st.sidebar.file_uploader(f"Upload {domain} CSV", type="csv")
+
+# Dynamic Use Case Mapping based on provided images
+use_case_map = {
+    "Sales": [
+        "Sales Forecasting", "Customer Segmentation", 
+        "Recommendation System", "Price Optimization", "Anomaly Detection"
+    ],
+    "Finance": [
+        "Credit Scoring / Risk Assessment", "Expense / Budget Forecasting",
+        "Portfolio Optimization", "Invoice / Payment Anomaly Detection", "Financial Statement Analysis"
+    ],
+    "HR": [
+        "Attrition / Turnover Prediction", "Workforce Planning",
+        "Training Recommendation", "Salary / Compensation Benchmarking"
+    ]
 }
-use_case = st.sidebar.selectbox("Select Use Case", use_cases[domain])
-uploaded_file = st.sidebar.file_uploader("Upload CSV Dataset", type=["csv"])
 
-df = pd.read_csv(uploaded_file) if uploaded_file else None
-if df is not None:
-    st.sidebar.success(f"✅ Dataset uploaded for {use_case}")
-    st.sidebar.write(df.head())
+selected_use_case = st.sidebar.selectbox(
+    "Select Analysis Type",
+    ["Select a use case"] + use_case_map[domain]
+)
 
 # -------------------------------
-# Page Header
+# Model Routing Logic
 # -------------------------------
-st.title("📊 AI-Powered Business Intelligence Assistant")
-st.markdown("Ask questions about your uploaded data and receive insights & recommendations from our AI assistant.")
+def run_ml_logic(domain_name, use_case, data):
+    """
+    Routes data to the correct backend function based on domain and use case.
+    """
+    if domain_name == "Sales":
+        if use_case == "Sales Forecasting": return sales_forecasting(data)
+        if use_case == "Customer Segmentation": return customer_segmentation(data)
+        if use_case == "Recommendation System": return recommendation_system(data)
+        if use_case == "Price Optimization": return price_optimization(data)
+        if use_case == "Anomaly Detection": return sales_anomaly(data)
 
-# -------------------------------
-# ML Model Execution
-# -------------------------------
-def run_ml_model(df, domain, use_case):
-    df_clean = df.dropna().copy()
-    for col in df_clean.select_dtypes(include="object"):
-        df_clean[col] = LabelEncoder().fit_transform(df_clean[col])
-    
-    ml_result = {}
-    chart = None
+    elif domain_name == "Finance":
+        if use_case == "Credit Scoring / Risk Assessment": return credit_risk_assessment(data)
+        if use_case == "Expense / Budget Forecasting": return expense_budget_forecasting(data)
+        if use_case == "Portfolio Optimization": return portfolio_optimization(data)
+        if use_case == "Invoice / Payment Anomaly Detection": return invoice_anomaly_detection(data)
+        if use_case == "Financial Statement Analysis": return financial_statement_analysis(data)
 
-    if use_case == "Churn Prediction" and "Churn" in df_clean.columns:
-        X = df_clean.drop("Churn", axis=1)
-        y = df_clean["Churn"]
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        model.fit(X, y)
-        preds = model.predict(X)
-        df_clean["Prediction"] = preds
-        ml_result = df_clean["Prediction"].value_counts().to_dict()
-        chart = px.pie(df_clean, names="Prediction", title="Churn Prediction Distribution")
+    elif domain_name == "HR":
+        if use_case == "Attrition / Turnover Prediction": return attrition_turnover_prediction(data)
+        if use_case == "Workforce Planning": return workforce_planning(data)
+        if use_case == "Training Recommendation": return training_recommendation(data)
+        if use_case == "Salary / Compensation Benchmarking": return salary_compensation_benchmarking(data)
 
-    elif use_case == "Customer Segmentation" or use_case == "Employee Segmentation":
-        X = df_clean.select_dtypes(include="number")
-        kmeans = KMeans(n_clusters=3, random_state=42)
-        df_clean["Segment"] = kmeans.fit_predict(X)
-        ml_result = df_clean["Segment"].value_counts().to_dict()
-        chart = px.bar(x=list(ml_result.keys()), y=list(ml_result.values()), labels={"x":"Segment", "y":"Count"}, title="Segments Distribution")
-
-    elif use_case == "Fraud Detection":
-        X = df_clean.select_dtypes(include="number")
-        iso = IsolationForest(contamination=0.05, random_state=42)
-        df_clean["Anomaly"] = iso.fit_predict(X)
-        ml_result = df_clean["Anomaly"].value_counts().to_dict()
-        chart = px.pie(df_clean, names="Anomaly", title="Fraud / Anomaly Distribution")
-
-    elif use_case == "Expense Forecast" or use_case == "Sales Forecast":
-        numeric_cols = df_clean.select_dtypes(include="number").columns
-        ml_result = {col: float(df_clean[col].sum()) for col in numeric_cols}
-    
-    elif use_case == "Attrition Prediction" and "Attrition" in df_clean.columns:
-        X = df_clean.drop("Attrition", axis=1)
-        y = df_clean["Attrition"]
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        model.fit(X, y)
-        df_clean["Attrition_Prediction"] = model.predict(X)
-        ml_result = df_clean["Attrition_Prediction"].value_counts().to_dict()
-        chart = px.pie(df_clean, names="Attrition_Prediction", title="Attrition Prediction Distribution")
-    
-    return ml_result, chart
+    return {}
 
 # -------------------------------
-# LLM Insight Generation
+# Main Interface
 # -------------------------------
-def generate_llm_insights(user_query, ml_outputs, df_summary):
-    prompt = f"""
-You are a senior business intelligence consultant.
+st.title(f"AI Powered Business Intelligence Assistant")
+st.subheader(f"Generate data-driven insights for {domain} use cases")
 
-User Question:
-{user_query}
+if uploaded_file and selected_use_case != "Select a use case":
+    try:
+        df = pd.read_csv(uploaded_file)
+        st.success(f"✅ Ready: {selected_use_case}")
+        
+        # Chat Interface
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
 
-ML Outputs:
-{ml_outputs}
+        # Display Chat History
+        for role, message in st.session_state.chat_history:
+            with st.chat_message(role):
+                st.markdown(message)
 
-Data Summary:
-{df_summary}
+        # User Input
+        if query := st.chat_input("Ask for insights..."):
+            with st.chat_message("user"):
+                st.markdown(query)
+            st.session_state.chat_history.append(("user", query))
 
-Task:
-- Interpret the ML outputs
-- Provide business insights
-- Give strategic recommendations
-- Be concise and professional
-"""
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": "You provide executive-level BI insights."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+            with st.spinner("🤖generating insights..."):
+                # 1. Trigger ML Backend
+                ml_results = run_ml_logic(domain, selected_use_case, df)
+                
+                # 2. LLM Insight Generation
+                prompt = f"""
+                Domain: {domain}
+                Use Case: {selected_use_case}
+                ML Outputs: {ml_results}
+                User Question: {query}
+                
+                You are a Senior Business Intelligence Strategy Consultant. Your goal is to translate complex ML outputs into high-level executive actions.
 
-# -------------------------------
-# Chat Interface
-# -------------------------------
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+                ### STRICTURES (CRITICAL)
+                1. NO CHAIN OF THOUGHT: Do not include  tags or any internal reasoning steps.
+                2. NO CONVERSATIONAL FILLER: Do not say "Here are the insights," "Based on the data," or "I hope this helps."
+                3. NO PREAMBLE/POSTAMBLE: Start immediately with the first header and end immediately after the last recommendation.
+                4. DATA INTEGRITY: Use only the numbers provided in the ML results. Do not hallucinate external market trends.
 
-query = st.chat_input("Ask a business question...")
+                ### OUTPUT STRUCTURE
+                ### Business Insights
+                - [Insight 1: Describe a specific data relationship or trend found in the ML results]
+                - [Insight 2: Identify a potential risk or opportunity indicated by the metrics]
 
-if query:
-    df_summary = df.head().to_dict() if df is not None else "No dataset uploaded."
-    ml_outputs, chart = run_ml_model(df, domain, use_case) if df is not None else ({}, None)
-    answer = generate_llm_insights(query, ml_outputs, df_summary)
+                ### Strategic Recommendations
+                - [Action 1: Immediate operational step based on Insight 1]
+                - [Action 2: Long-term strategic adjustment based on Insight 2]
 
-    st.session_state.chat_history.append(("user", query))
-    st.session_state.chat_history.append(("bot", answer))
+                """
+                
+                response = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[
+                        {"role": "system", "content": f"You are a Senior {domain} Consultant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1
+                )
+                answer = response.choices[0].message.content
 
-    # Show ML chart if exists
-    if chart is not None:
-        st.plotly_chart(chart, use_container_width=True)
+            with st.chat_message("assistant"):
+                st.markdown(answer)
+            st.session_state.chat_history.append(("assistant", answer))
 
-# -------------------------------
-# Display Chat
-# -------------------------------
-for role, message in st.session_state.chat_history:
-    if role == "user":
-        st.markdown(f"<div class='chat-box user'>{message}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='chat-box bot'>{message}</div>", unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
+else:
+    st.info(f"👈 Please upload a {domain} CSV file and select a use case to begin.")

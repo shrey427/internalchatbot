@@ -1,0 +1,210 @@
+import pandas as pd
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.ensemble import IsolationForest
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.linear_model import LinearRegression, HuberRegressor
+from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_regression
+
+# -------------------------------
+# Universal Feature Selection
+# -------------------------------
+def select_important_features(df, top_n=5, is_unsupervised=False):
+    """
+    Standardized Selector: Handles noise, redundancy, and 
+    ranks features based on the specific ML task type.
+    """
+    numeric_df = df.select_dtypes(include=["number"]).copy()
+    if numeric_df.shape[1] < 2:
+        return numeric_df
+
+    # 1. Remove Low Variance (Constant/Static columns)
+    v_threshold = VarianceThreshold(threshold=(.8 * (1 - .8)))
+    try:
+        numeric_df = pd.DataFrame(
+            v_threshold.fit_transform(numeric_df), 
+            columns=numeric_df.columns[v_threshold.get_support()]
+        )
+    except ValueError:
+        return numeric_df
+
+    # 2. Remove Redundant Features (Correlation > 0.95)
+    corr_matrix = numeric_df.corr().abs()
+    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    to_drop = [column for column in upper.columns if any(upper[column] > 0.95)]
+    numeric_df = numeric_df.drop(columns=to_drop)
+
+    # 3. Task-Specific Selection
+    if is_unsupervised:
+        # For Clustering/Anomalies: Rank by Scaled Variance (Signal strength)
+        scaled_variance = numeric_df.var() / (numeric_df.mean() + 1e-6)
+        top_features = scaled_variance.nlargest(top_n).index.tolist()
+        return numeric_df[top_features]
+    else:
+        # For Prediction: Rank by relationship to the target (last column)
+        target = numeric_df.columns[-1]
+        X = numeric_df.drop(columns=[target])
+        y = numeric_df[target]
+        k = min(top_n, X.shape[1])
+        
+        selector = SelectKBest(score_func=f_regression, k=k)
+        selector.fit(X, y)
+        selected_cols = X.columns[selector.get_support()].tolist()
+        return numeric_df[selected_cols + [target]]
+
+# -------------------------------
+# 1. Sales Forecasting
+# -------------------------------
+def sales_forecasting(df, periods=6):
+    numeric_df = select_important_features(df, is_unsupervised=False)
+    series = numeric_df.iloc[:, -1].values.astype(float)
+    n = len(series)
+    
+    time_index = np.arange(n).reshape(-1, 1)
+    rolling_mean = pd.Series(series).rolling(window=3, min_periods=1).mean().values.reshape(-1, 1)
+    X = np.hstack([time_index, rolling_mean])
+    
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    model = HuberRegressor()
+    model.fit(X_scaled, series)
+    
+    forecast_values = []
+    current_series = series.tolist()
+    
+    for i in range(periods):
+        next_idx = n + i
+        recent_avg = np.mean(current_series[-3:])
+        X_next_scaled = scaler.transform([[next_idx, recent_avg]])
+        prediction = model.predict(X_next_scaled)[0]
+        forecast_values.append(max(0, prediction)) 
+        current_series.append(prediction)
+
+    return {
+        "model": "Robust Huber (Trend + Momentum)",
+        "forecast_values": np.round(forecast_values, 2).tolist()
+    }
+
+# -------------------------------
+# 2. Customer Segmentation
+# -------------------------------
+def customer_segmentation(df, clusters=None):
+    """
+    Refactored: Uses Robust Scaling and determines optimal clusters 
+    if 'clusters' is not provided.
+    """
+    numeric_df = select_important_features(df, is_unsupervised=True)
+
+    # RobustScaler handles outliers better than StandardScaler for segmentation
+    scaler = RobustScaler()
+    scaled = scaler.fit_transform(numeric_df)
+
+    # Automatic K-selection logic (simplified)
+    if clusters is None:
+        clusters = 3 if len(numeric_df) > 10 else 2
+
+    kmeans = KMeans(n_clusters=clusters, random_state=42, n_init="auto")
+    labels = kmeans.fit_predict(scaled)
+
+    return {
+        "model": "KMeans Clustering (Robust Scaled)",
+        "clusters_identified": clusters,
+        "segment_counts": pd.Series(labels).value_counts().to_dict(),
+        "cluster_centers": np.round(scaler.inverse_transform(kmeans.cluster_centers_), 2).tolist()
+    }
+
+# -------------------------------
+# 3. Recommendation System
+# -------------------------------
+def recommendation_system(df, top_n=3):
+    """
+    Refactored: Uses Normalized Vector Similarity for more accurate 
+    ranking of 'similar' items/customers.
+    """
+    numeric_df = select_important_features(df, is_unsupervised=True)
+    
+    # Normalize features so similarity isn't biased by large numbers
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(numeric_df)
+
+    similarity = cosine_similarity(scaled_data)
+
+    results = {}
+    # Sample top 5 records to show recommendations for
+    for idx in range(min(5, len(similarity))):
+        # Sort by similarity, exclude the item itself [1:]
+        similar_indices = np.argsort(similarity[idx])[::-1][1:top_n + 1]
+        scores = np.sort(similarity[idx])[::-1][1:top_n + 1]
+        results[f"Record_{idx}"] = {
+            "matches": similar_indices.tolist(),
+            "confidence_scores": np.round(scores, 3).tolist()
+        }
+
+    return {
+        "model": "Normalized Cosine Similarity",
+        "recommendations": results
+    }
+
+# -------------------------------
+# 4. Price Optimization / Risk (Impact Analysis)
+# -------------------------------
+def price_optimization(df):
+    """
+    Refactored: Uses Regularized Regression (Ridge) to ensure 
+    feature impact scores are stable and not exaggerated.
+    """
+    from sklearn.linear_model import Ridge
+    
+    numeric_df = select_important_features(df, is_unsupervised=False)
+    X = numeric_df.iloc[:, :-1]
+    y = numeric_df.iloc[:, -1]
+
+    # Standardize X for fair coefficient comparison
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    model = Ridge(alpha=1.0)
+    model.fit(X_scaled, y)
+
+    # Impact is the coefficient of the scaled feature
+    impact = dict(zip(X.columns, model.coef_))
+    sorted_impact = dict(sorted(impact.items(), key=lambda item: abs(item[1]), reverse=True))
+
+    return {
+        "model": "Ridge Regression (Impact Analysis)",
+        "target": y.name,
+        "feature_influence_score": {k: round(v, 4) for k, v in sorted_impact.items()},
+        "insight": "Higher absolute values indicate stronger influence on target."
+    }
+
+# -------------------------------
+# 5. Anomaly Detection
+# -------------------------------
+def anomaly_detection(df):
+    """
+    Refactored: Optimized Isolation Forest with automated 
+    contamination estimation based on dataset size.
+    """
+    numeric_df = select_important_features(df, is_unsupervised=True)
+    
+    # Auto-adjust contamination if data is very small
+    contam = 0.05 if len(numeric_df) > 50 else 0.1
+
+    model = IsolationForest(
+        n_estimators=200, # Increased for better stability
+        contamination=contam,
+        random_state=42
+    )
+
+    anomalies = model.fit_predict(numeric_df)
+    
+    # Convert labels: 1 (Normal) -> "Clean", -1 (Anomaly) -> "Flagged"
+    results = pd.Series(anomalies).map({1: "Normal", -1: "Anomaly"}).value_counts().to_dict()
+
+    return {
+        "model": "Isolation Forest (Optimized)",
+        "distribution": results,
+        "anomaly_indices": np.where(anomalies == -1)[0].tolist()
+    }
