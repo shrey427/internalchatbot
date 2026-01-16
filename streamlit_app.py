@@ -144,7 +144,7 @@ if uploaded_file and selected_use_case != "Select a use case":
                 
                 You are a Senior Business Intelligence Strategy Consultant. Your goal is to translate complex ML outputs into high-level executive actions.
 
-                ### STRICTURES (CRITICAL)
+                ### STRUCTURES (CRITICAL)
                 1. NO CHAIN OF THOUGHT: Do not include  tags or any internal reasoning steps.
                 2. NO CONVERSATIONAL FILLER: Do not say "Here are the insights," "Based on the data," or "I hope this helps."
                 3. NO PREAMBLE/POSTAMBLE: Start immediately with the first header and end immediately after the last recommendation.
