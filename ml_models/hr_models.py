@@ -6,6 +6,8 @@ from sklearn.linear_model import HuberRegressor, Ridge
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_regression
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_percentage_error, r2_score
 
 # ===============================================================
 # CORE UTILITY: Universal Feature Selection
@@ -54,6 +56,30 @@ def select_important_features(df, top_n=5, is_unsupervised=False):
         selected_cols = X.columns[selector.get_support()].tolist()
         return numeric_df[selected_cols + [target]]
 
+
+def validate_model_performance(X, y, model_type="regression"):
+    """
+    Standardizes validation across all domain models.
+    Returns an accuracy percentage or R2 score.
+    """
+    # 80/20 Split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Generic model to test data quality
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+    
+    if model_type == "regression":
+        tester = RandomForestRegressor(n_estimators=50, random_state=42)
+        tester.fit(X_train, y_train)
+        score = tester.score(X_test, y_test)
+        return f"{max(0, round(score * 100, 2))}% (R2 Score)"
+    else:
+        tester = RandomForestClassifier(n_estimators=50, random_state=42)
+        tester.fit(X_train, y_train)
+        score = tester.score(X_test, y_test)
+        return f"{round(score * 100, 2)}% (Accuracy)"
+
+
 # ===============================================================
 # HR MODELS
 # ===============================================================
@@ -72,11 +98,12 @@ def attrition_turnover_prediction(df):
     model.fit(X, y)
     
     importance = dict(zip(X.columns, np.round(model.feature_importances_, 4)))
-    
+    acc = validate_model_performance(X, y, "classification")
     return {
         "model": "Classification (Attrition Risk)",
         "turnover_drivers": dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)),
-        "outcome": "Risk factors identified for retention planning."
+        "outcome": "Risk factors identified for retention planning.",
+        "validation_score": acc
     }
 
 def workforce_planning(df, periods=6):
@@ -106,11 +133,12 @@ def workforce_planning(df, periods=6):
         prediction = model.predict(X_next_scaled)[0]
         forecast_values.append(max(0, round(prediction))) # Staffing counts must be integers
         current_series.append(prediction)
-
+    acc = validate_model_performance(X_scaled, series, "regression")
     return {
         "model": "Forecasting (Staffing Demand)",
         "projected_staffing_needs": forecast_values,
-        "value": "Optimized staffing levels based on trends."
+        "value": "Optimized staffing levels based on trends.",
+        "validation_score": acc
     }
 
 def training_recommendation(df, top_n=3):
@@ -132,10 +160,11 @@ def training_recommendation(df, top_n=3):
             "peer_group_matches": similar_indices.tolist(),
             "note": "Suggest courses completed by these peers."
         }
-
+    acc = validate_model_performance(scaled_data, np.arange(len(scaled_data)), "regression")
     return {
         "model": "Cosine Similarity Recommendation",
-        "recommendations": results
+        "recommendations": results,
+        "validation_score": acc
     }
 
 def salary_compensation_benchmarking(df):
@@ -152,9 +181,10 @@ def salary_compensation_benchmarking(df):
     model.fit(X, y)
     
     benchmarks = dict(zip(X.columns, np.round(model.coef_, 4)))
-    
+    acc = validate_model_performance(X, y, "regression")
     return {
         "model": "Regression (Fair Pay Benchmarking)",
         "compensation_drivers": benchmarks,
-        "outcome": "Predict fair salaries based on experience and role."
+        "outcome": "Predict fair salaries based on experience and role.",
+        "validation_score": acc
     }

@@ -4,6 +4,8 @@ from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.linear_model import HuberRegressor, Ridge
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_regression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_percentage_error, r2_score
 
 # ===============================================================
 # CORE UTILITY: Universal Feature Selection
@@ -52,6 +54,29 @@ def select_important_features(df, top_n=5, is_unsupervised=False):
         selected_cols = X.columns[selector.get_support()].tolist()
         return numeric_df[selected_cols + [target]]
 
+
+def validate_model_performance(X, y, model_type="regression"):
+    """
+    Standardizes validation across all domain models.
+    Returns an accuracy percentage or R2 score.
+    """
+    # 80/20 Split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Generic model to test data quality
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+    
+    if model_type == "regression":
+        tester = RandomForestRegressor(n_estimators=50, random_state=42)
+        tester.fit(X_train, y_train)
+        score = tester.score(X_test, y_test)
+        return f"{max(0, round(score * 100, 2))}% (R2 Score)"
+    else:
+        tester = RandomForestClassifier(n_estimators=50, random_state=42)
+        tester.fit(X_train, y_train)
+        score = tester.score(X_test, y_test)
+        return f"{round(score * 100, 2)}% (Accuracy)"
+
 # ===============================================================
 # FINANCE MODELS
 # ===============================================================
@@ -69,10 +94,11 @@ def credit_risk_assessment(df):
     model.fit(X, y)
     
     importance = dict(zip(X.columns, np.round(model.feature_importances_, 4)))
-    
+    acc = validate_model_performance(X, y, "classification")
     return {
         "model": "Random Forest (Credit Risk)",
-        "risk_indicators": dict(sorted(importance.items(), key=lambda x: x[1], reverse=True))
+        "risk_indicators": dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)),
+        "validation_score": acc
     }
 
 def expense_budget_forecasting(df, periods=6):
@@ -105,10 +131,11 @@ def expense_budget_forecasting(df, periods=6):
         prediction = model.predict(X_next_scaled)[0]
         forecast_values.append(max(0, prediction)) # Expenses cannot be negative
         current_series.append(prediction)
-
+    acc = validate_model_performance(X_scaled, series, "regression")
     return {
         "model": "Huber Regression (Expense Forecast)",
-        "forecast_values": np.round(forecast_values, 2).tolist()
+        "forecast_values": np.round(forecast_values, 2).tolist(),
+        "validation_score": acc
     }
 
 def portfolio_optimization(df):
@@ -125,10 +152,11 @@ def portfolio_optimization(df):
     weights = (1 / volatility) / (1 / volatility).sum()
     
     allocation = dict(zip(numeric_df.columns, np.round(weights, 4)))
-    
+    acc = validate_model_performance(numeric_df, returns.fillna(0), "regression")
     return {
         "model": "Mean-Variance Optimization",
-        "recommended_allocation": allocation
+        "recommended_allocation": allocation,
+        "validation_score": acc
     }
 
 def invoice_anomaly_detection(df):
@@ -146,11 +174,12 @@ def invoice_anomaly_detection(df):
     labels = model.fit_predict(scaled_data)
     
     anomaly_indices = np.where(labels == -1)[0].tolist()
-    
+    acc = validate_model_performance(scaled_data, labels, "classification")
     return {
         "model": "Isolation Forest (Anomaly Detection)",
         "flagged_count": len(anomaly_indices),
-        "flagged_record_indices": anomaly_indices
+        "flagged_record_indices": anomaly_indices,
+        "validation_score": acc
     }
 
 def financial_statement_analysis(df):
@@ -167,8 +196,9 @@ def financial_statement_analysis(df):
     model.fit(X, y)
     
     impact = dict(zip(X.columns, np.round(model.coef_, 4)))
-    
+    acc = validate_model_performance(X, y, "regression")
     return {
         "model": "Ridge Regression (Impact Analysis)",
-        "performance_drivers": dict(sorted(impact.items(), key=lambda x: abs(x[1]), reverse=True))
+        "performance_drivers": dict(sorted(impact.items(), key=lambda x: abs(x[1]), reverse=True)),
+        "validation_score": acc
     }

@@ -6,6 +6,8 @@ from sklearn.ensemble import IsolationForest
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.linear_model import LinearRegression, HuberRegressor
 from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_regression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_percentage_error, r2_score
 
 # -------------------------------
 # Universal Feature Selection
@@ -53,6 +55,29 @@ def select_important_features(df, top_n=5, is_unsupervised=False):
         selected_cols = X.columns[selector.get_support()].tolist()
         return numeric_df[selected_cols + [target]]
 
+
+def validate_model_performance(X, y, model_type="regression"):
+    """
+    Standardizes validation across all domain models.
+    Returns an accuracy percentage or R2 score.
+    """
+    # 80/20 Split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Generic model to test data quality
+    from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+    
+    if model_type == "regression":
+        tester = RandomForestRegressor(n_estimators=50, random_state=42)
+        tester.fit(X_train, y_train)
+        score = tester.score(X_test, y_test)
+        return f"{max(0, round(score * 100, 2))}% (R2 Score)"
+    else:
+        tester = RandomForestClassifier(n_estimators=50, random_state=42)
+        tester.fit(X_train, y_train)
+        score = tester.score(X_test, y_test)
+        return f"{round(score * 100, 2)}% (Accuracy)"
+
 # -------------------------------
 # 1. Sales Forecasting
 # -------------------------------
@@ -60,7 +85,7 @@ def sales_forecasting(df, periods=6):
     numeric_df = select_important_features(df, is_unsupervised=False)
     series = numeric_df.iloc[:, -1].values.astype(float)
     n = len(series)
-    
+   
     time_index = np.arange(n).reshape(-1, 1)
     rolling_mean = pd.Series(series).rolling(window=3, min_periods=1).mean().values.reshape(-1, 1)
     X = np.hstack([time_index, rolling_mean])
@@ -81,10 +106,11 @@ def sales_forecasting(df, periods=6):
         prediction = model.predict(X_next_scaled)[0]
         forecast_values.append(max(0, prediction)) 
         current_series.append(prediction)
-
+    acc = validate_model_performance(X_scaled, series, model_type="regression")
     return {
         "model": "Robust Huber (Trend + Momentum)",
-        "forecast_values": np.round(forecast_values, 2).tolist()
+        "forecast_values": np.round(forecast_values, 2).tolist(),
+        "model_confidence": acc
     }
 
 # -------------------------------
@@ -96,7 +122,7 @@ def customer_segmentation(df, clusters=None):
     if 'clusters' is not provided.
     """
     numeric_df = select_important_features(df, is_unsupervised=True)
-
+    
     # RobustScaler handles outliers better than StandardScaler for segmentation
     scaler = RobustScaler()
     scaled = scaler.fit_transform(numeric_df)
@@ -107,12 +133,13 @@ def customer_segmentation(df, clusters=None):
 
     kmeans = KMeans(n_clusters=clusters, random_state=42, n_init="auto")
     labels = kmeans.fit_predict(scaled)
-
+    acc = validate_model_performance(scaled, labels, "classification")
     return {
         "model": "KMeans Clustering (Robust Scaled)",
         "clusters_identified": clusters,
         "segment_counts": pd.Series(labels).value_counts().to_dict(),
-        "cluster_centers": np.round(scaler.inverse_transform(kmeans.cluster_centers_), 2).tolist()
+        "cluster_centers": np.round(scaler.inverse_transform(kmeans.cluster_centers_), 2).tolist(),
+        "model_confidence": acc
     }
 
 # -------------------------------
@@ -141,10 +168,11 @@ def recommendation_system(df, top_n=3):
             "matches": similar_indices.tolist(),
             "confidence_scores": np.round(scores, 3).tolist()
         }
-
+    acc = validate_model_performance(scaled_data, np.arange(len(scaled_data)), "regression")
     return {
         "model": "Normalized Cosine Similarity",
-        "recommendations": results
+        "recommendations": results,
+        "model_confidence": acc
     }
 
 # -------------------------------
@@ -160,7 +188,7 @@ def price_optimization(df):
     numeric_df = select_important_features(df, is_unsupervised=False)
     X = numeric_df.iloc[:, :-1]
     y = numeric_df.iloc[:, -1]
-
+    
     # Standardize X for fair coefficient comparison
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -171,12 +199,13 @@ def price_optimization(df):
     # Impact is the coefficient of the scaled feature
     impact = dict(zip(X.columns, model.coef_))
     sorted_impact = dict(sorted(impact.items(), key=lambda item: abs(item[1]), reverse=True))
-
+    acc = validate_model_performance(X_scaled, y, "regression")
     return {
         "model": "Ridge Regression (Impact Analysis)",
         "target": y.name,
         "feature_influence_score": {k: round(v, 4) for k, v in sorted_impact.items()},
-        "insight": "Higher absolute values indicate stronger influence on target."
+        "insight": "Higher absolute values indicate stronger influence on target.",
+        "model_confidence": acc
     }
 
 # -------------------------------
@@ -202,9 +231,10 @@ def anomaly_detection(df):
     
     # Convert labels: 1 (Normal) -> "Clean", -1 (Anomaly) -> "Flagged"
     results = pd.Series(anomalies).map({1: "Normal", -1: "Anomaly"}).value_counts().to_dict()
-
+    acc = validate_model_performance(numeric_df, anomalies, "classification")
     return {
         "model": "Isolation Forest (Optimized)",
         "distribution": results,
-        "anomaly_indices": np.where(anomalies == -1)[0].tolist()
+        "anomaly_indices": np.where(anomalies == -1)[0].tolist(),
+        "model_confidence": acc
     }

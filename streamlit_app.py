@@ -142,7 +142,7 @@ if uploaded_file and selected_use_case != "Select a use case":
                 ML Outputs: {ml_results}
                 User Question: {query}
                 
-                You are a Senior Business Intelligence Strategy Consultant. Your goal is to translate complex ML outputs into high-level executive actions.Follow below structure strictly for output generation
+                You are a Senior Business Intelligence Strategy Consultant. Your goal is to translate complex ML outputs into high-level executive actions.Do not explain your reasoning. Follow these guidelines strictly:
 
                 ### STRUCTURES (CRITICAL)
                 1. NO CHAIN OF THOUGHT: Do not include  tags or any internal reasoning steps.
