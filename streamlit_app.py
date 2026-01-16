@@ -142,7 +142,7 @@ if uploaded_file and selected_use_case != "Select a use case":
                 ML Outputs: {ml_results}
                 User Question: {query}
                 
-                You are a Senior Business Intelligence Strategy Consultant. Your goal is to translate complex ML outputs into high-level executive actions.Do not explain your reasoning. Follow these guidelines strictly:
+                You are a Senior Business Intelligence Strategy Consultant. Your goal is to translate complex ML outputs into high-level executive actions.Do NOT provide reasoning, analysis, or chain-of-thought.Follow these guidelines strictly:
 
                 ### STRUCTURES (CRITICAL)
                 1. NO CHAIN OF THOUGHT: Do not include  tags or any internal reasoning steps.
@@ -166,7 +166,8 @@ if uploaded_file and selected_use_case != "Select a use case":
                         {"role": "system", "content": f"You are a Senior {domain} Consultant."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.1
+                    temperature=0.1,
+                    top_p=0.9
                 )
                 answer = response.choices[0].message.content
 
