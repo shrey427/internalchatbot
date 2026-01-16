@@ -26,7 +26,7 @@ load_dotenv()
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
-    st.error("❌ HF_TOKEN not found in environment variables.")
+    st.error(" HF_TOKEN not found in environment variables.")
     st.stop()
 
 client = OpenAI(
@@ -131,7 +131,7 @@ if uploaded_file and selected_use_case != "Select a use case":
                 st.markdown(query)
             st.session_state.chat_history.append(("user", query))
 
-            with st.spinner("🤖generating insights..."):
+            with st.spinner("generating insights..."):
                 # 1. Trigger ML Backend
                 ml_results = run_ml_logic(domain, selected_use_case, df)
                 
