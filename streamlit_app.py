@@ -36,7 +36,7 @@ client = OpenAI(
     api_key=HF_TOKEN,
 )
 
-MODEL_NAME = "deepseek-ai/DeepSeek-R1:novita"
+MODEL_NAME = "deepseek-ai/DeepSeek-R1:sambanova"
 
 # -------------------------------
 # Page Configuration
@@ -87,6 +87,35 @@ def get_smart_context(df, ml_results, query):
     context_df = pd.concat([df.head(5), df.iloc[final_indices]]).drop_duplicates()
     
     return context_df.to_string(index=False)
+
+def sanitize_llm_output(text: str) -> str:
+    """
+    Removes ALL reasoning/thinking text and keeps ONLY the final
+    Business Insights + Strategic Recommendations section.
+    """
+
+    # 1. Remove ALL <think>...</think> blocks
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+
+    # 2. Normalize whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    # 3. Extract LAST valid structured business block
+    pattern = r"(###\s*Business Insights[\s\S]*?###\s*Strategic Recommendations[\s\S]*)"
+    matches = re.findall(pattern, text, flags=re.IGNORECASE)
+
+    if matches:
+        return matches[-1].strip()
+
+    # 4. Fallback for slightly different headings
+    loose_pattern = r"(Business Insights[\s\S]*?Strategic Recommendations[\s\S]*)"
+    matches = re.findall(loose_pattern, text, flags=re.IGNORECASE)
+
+    if matches:
+        return matches[-1].strip()
+
+    # 5. Final fallback
+    return text
 
 # -------------------------------
 # Sidebar – Domain & Use Case Controls
@@ -226,22 +255,15 @@ if uploaded_file:
                     temperature=0.1
                 )
                 
-            # Use Regex to remove everything between <tool_call> and <tool_call> tags
+            
             raw_answer = response.choices[0].message.content
-            
-            def extract_business_output(text: str) -> str:
-                markers = ["Business Insights", "Strategic Recommendations"]
-
-                for marker in markers:
-                    if marker in text:
-                        return text[text.index(marker):].strip()
-
-                return text  # fallback 
-            
-            answer =  extract_business_output(raw_answer)
+            answer = sanitize_llm_output(raw_answer)
+                    
             with st.chat_message("assistant"):
                 st.markdown(answer)
+
             st.session_state.chat_history.append(("assistant",answer))
+
     except Exception as e:
         st.error(f"❌ Error: {e}")
 else:
