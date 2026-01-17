@@ -5,4 +5,5 @@ joblib
 pandas
 numpy
 transformers
-plotly
+python-dotenv
+openpyxl
