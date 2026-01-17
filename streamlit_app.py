@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from pandas.errors import EmptyDataError
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
 
-# Import ML models from your local folder structure
+# Import ML models
 from ml_models.sales_models import (
     sales_forecasting, customer_segmentation, 
     recommendation_system, price_optimization, anomaly_detection as sales_anomaly
@@ -26,7 +27,7 @@ load_dotenv()
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
 if not HF_TOKEN:
-    st.error(" HF_TOKEN not found in environment variables.")
+    st.error("HF_TOKEN not found in environment variables.")
     st.stop()
 
 client = OpenAI(
@@ -46,128 +47,160 @@ st.set_page_config(
 )
 
 # -------------------------------
+# Helper: Smart Context Fetcher
+# -------------------------------
+def get_smart_context(df, ml_results, query):
+    """
+    Extracts relevant rows (Anomalies + Outliers + Query-Matches)
+    to provide the LLM a representative 'peek' at the entire dataset.
+    """
+    relevant_indices = set()
+
+    # 1. Capture ML Anomalies / Flagged Records
+    if isinstance(ml_results, dict):
+        if "anomaly_indices" in ml_results:
+            relevant_indices.update(ml_results["anomaly_indices"])
+        if "flagged_record_indices" in ml_results:
+            relevant_indices.update(ml_results["flagged_record_indices"])
+        if "recommendations" in ml_results:
+            # For HR recommendation peers
+            for k, v in ml_results["recommendations"].items():
+                relevant_indices.update(v.get("peer_group_matches", []))
+
+    # 2. Intent-Based Filtering (e.g., 'losses', 'negative', 'stress')
+    query_lc = query.lower()
+    if any(word in query_lc for word in ["loss", "negative", "stress", "debt", "risk", "decline"]):
+        num_df = df.select_dtypes(include='number')
+        neg_mask = (num_df < 0).any(axis=1)
+        relevant_indices.update(df[neg_mask].index.tolist())
+
+    # 3. Add Top/Bottom Outliers
+    numeric_cols = df.select_dtypes(include='number').columns
+    if not numeric_cols.empty:
+        main_col = numeric_cols[-1]
+        relevant_indices.update(df[main_col].nlargest(5).index.tolist())
+        relevant_indices.update(df[main_col].nsmallest(5).index.tolist())
+
+    # 4. Final Construction (Head + Relevant Rows)
+    final_indices = list(relevant_indices)[:30] # Limit to 30 rows for token efficiency
+    context_df = pd.concat([df.head(5), df.iloc[final_indices]]).drop_duplicates()
+    
+    return context_df.to_string(index=False)
+
+# -------------------------------
 # Sidebar – Domain & Use Case Controls
 # -------------------------------
 st.sidebar.title("🏢 Business Department")
-domain = st.sidebar.selectbox("Select Domain", ["Sales", "Finance", "HR"])
+domain = st.sidebar.selectbox("Choose Department", ["Sales", "Finance", "HR"])
 
-st.sidebar.markdown("---")
-st.sidebar.subheader(f"📁 {domain} Data Upload")
-uploaded_file = st.sidebar.file_uploader(f"Upload {domain} CSV", type="csv")
-
-# Dynamic Use Case Mapping based on provided images
-use_case_map = {
-    "Sales": [
-        "Sales Forecasting", "Customer Segmentation", 
-        "Recommendation System", "Price Optimization", "Anomaly Detection"
-    ],
-    "Finance": [
-        "Credit Scoring / Risk Assessment", "Expense / Budget Forecasting",
-        "Portfolio Optimization", "Invoice / Payment Anomaly Detection", "Financial Statement Analysis"
-    ],
-    "HR": [
-        "Attrition / Turnover Prediction", "Workforce Planning",
-        "Training Recommendation", "Salary / Compensation Benchmarking"
-    ]
+use_cases = {
+    "Sales": [ "Sales Forecasting", "Customer Segmentation", 
+        "Recommendation System", "Price Optimization", "Anomaly Detection"],
+    "Finance": ["Credit Scoring / Risk Assessment", "Expense / Budget Forecasting",
+        "Portfolio Optimization", "Invoice / Payment Anomaly Detection", "Financial Statement Analysis"],
+    "HR": [ "Attrition / Turnover Prediction", "Workforce Planning",
+        "Training Recommendation", "Salary / Compensation Benchmarking"]
 }
 
-selected_use_case = st.sidebar.selectbox(
-    "Select Analysis Type",
-    ["Select a use case"] + use_case_map[domain]
-)
+selected_use_case = st.sidebar.selectbox(f"Select {domain} Use Case", use_cases[domain])
 
 # -------------------------------
-# Model Routing Logic
-# -------------------------------
-def run_ml_logic(domain_name, use_case, data):
-    """
-    Routes data to the correct backend function based on domain and use case.
-    """
-    if domain_name == "Sales":
-        if use_case == "Sales Forecasting": return sales_forecasting(data)
-        if use_case == "Customer Segmentation": return customer_segmentation(data)
-        if use_case == "Recommendation System": return recommendation_system(data)
-        if use_case == "Price Optimization": return price_optimization(data)
-        if use_case == "Anomaly Detection": return sales_anomaly(data)
-
-    elif domain_name == "Finance":
-        if use_case == "Credit Scoring / Risk Assessment": return credit_risk_assessment(data)
-        if use_case == "Expense / Budget Forecasting": return expense_budget_forecasting(data)
-        if use_case == "Portfolio Optimization": return portfolio_optimization(data)
-        if use_case == "Invoice / Payment Anomaly Detection": return invoice_anomaly_detection(data)
-        if use_case == "Financial Statement Analysis": return financial_statement_analysis(data)
-
-    elif domain_name == "HR":
-        if use_case == "Attrition / Turnover Prediction": return attrition_turnover_prediction(data)
-        if use_case == "Workforce Planning": return workforce_planning(data)
-        if use_case == "Training Recommendation": return training_recommendation(data)
-        if use_case == "Salary / Compensation Benchmarking": return salary_compensation_benchmarking(data)
-
-    return {}
-
-# -------------------------------
-# Main Interface
+# Main UI
 # -------------------------------
 st.title(f"AI Powered Business Intelligence Assistant")
 st.subheader(f"Get real-time data-driven insights for {domain} use cases")
+# File Uploader
+uploaded_file = st.sidebar.file_uploader(f"Upload {domain} Data (CSV or Excel)", type=["csv", "xlsx"])
 
-if uploaded_file and selected_use_case != "Select a use case":
+if uploaded_file:
     try:
-        df = pd.read_csv(uploaded_file)
-        st.success(f"✅ Ready: {selected_use_case}")
+        # Handle Excel vs CSV
+        if uploaded_file.name.endswith('.xlsx'):
+            xl = pd.ExcelFile(uploaded_file)
+            sheet_name = st.sidebar.selectbox("Select Sheet", xl.sheet_names)
+            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+        else:
+            df = pd.read_csv(uploaded_file)
+
+        st.success("✅ Data Loaded Successfully!")
         
-        # Chat Interface
+        with st.expander("📊 Preview Raw Data"):
+            st.dataframe(df.head(10))
+
+        # Initialize chat history
         if "chat_history" not in st.session_state:
             st.session_state.chat_history = []
 
         # Display Chat History
-        for role, message in st.session_state.chat_history:
+        for role, text in st.session_state.chat_history:
             with st.chat_message(role):
-                st.markdown(message)
+                st.markdown(text)
 
-        # User Input
-        if query := st.chat_input("Ask for insights..."):
+        # Chat Input Logic
+        if query := st.chat_input("Ask a question about your data..."):
             with st.chat_message("user"):
                 st.markdown(query)
             st.session_state.chat_history.append(("user", query))
 
-            with st.spinner("generating insights..."):
-                # 1. Trigger ML Backend
-                ml_results = run_ml_logic(domain, selected_use_case, df)
-                
-                # 2. LLM Insight Generation
-                prompt = f"""
-                Domain: {domain}
-                Use Case: {selected_use_case}
-                ML Outputs: {ml_results}
-                User Question: {query}
-                
-                You are a Senior Business Intelligence Strategy Consultant. Your goal is to translate complex ML outputs into high-level executive actions.Do NOT provide reasoning, analysis, or chain-of-thought.Follow these guidelines strictly:
+            with st.spinner("Analyzing data and generating insights..."):
+                # 1. Run Backend ML Logic
+                ml_results = {}
+                if domain == "Sales":
+                    if "Forecast" in selected_use_case: ml_results = sales_forecasting(df)
+                    elif "Segmentation" in selected_use_case: ml_results = customer_segmentation(df)
+                    elif "Recommendation" in selected_use_case: ml_results = recommendation_system(df)
+                    elif "Price" in selected_use_case: ml_results = price_optimization(df)
+                    elif "Anomaly" in selected_use_case: ml_results = sales_anomaly(df)
+                elif domain == "Finance":
+                    if "Credit Risk" in selected_use_case: ml_results = credit_risk_assessment(df)
+                    elif "Expense Forecast" in selected_use_case: ml_results = expense_budget_forecasting(df)
+                    elif "Portfolio" in selected_use_case: ml_results = portfolio_optimization(df)
+                    elif "Invoice" in selected_use_case: ml_results = invoice_anomaly_detection(df)
+                    elif "Statement" in selected_use_case: ml_results = financial_statement_analysis(df)
+                elif domain == "HR":
+                    if "Attrition" in selected_use_case: ml_results = attrition_turnover_prediction(df)
+                    elif "Workforce" in selected_use_case: ml_results = workforce_planning(df)
+                    elif "Training" in selected_use_case: ml_results = training_recommendation(df)
+                    elif "Salary" in selected_use_case: ml_results = salary_compensation_benchmarking(df)
 
-                ### STRUCTURES (CRITICAL)
-                1. NO CHAIN OF THOUGHT: Do not include  tags or any internal reasoning steps.
-                3. NO PREAMBLE/POSTAMBLE: Start immediately with the first header and end immediately after the last recommendation.
-                4. DATA INTEGRITY: Use only the numbers provided in the ML results. Do not hallucinate external market trends.
+                # 2. Get Smart Context (The "Peek")
+                smart_data_peek = get_smart_context(df, ml_results, query)
+
+                # 3. Fine-Tuned Prompt Generation
+                prompt = f"""
+                ### ROLE
+                You are a Senior {domain} Strategy Consultant. Provide executive-grade insights.
+
+                ### DATA CONTEXT (SMART PEEK)
+                {smart_data_peek}
+
+                ### ML MODEL RESULTS
+                {ml_results}
+
+                ### USER QUESTION
+                {query}
+
+                ### STRICTURES
+                1. NO CHAIN OF THOUGHT: Do not include <think> tags.
+                2. NO FILLER: Start immediately with headers.
+                3. USE NAMES: If names/IDs are in the DATA CONTEXT, use them to answer row-specific questions.
+                4. INTEGRATE: Combine the raw data peek with the ML results for a unified answer.
 
                 ### OUTPUT STRUCTURE
                 ### Business Insights
-                - [Insight 1: Describe a specific data relationship or trend found in the ML results]
-                - [Insight 2: Identify a potential risk or opportunity indicated by the metrics]
-
-                ### Strategic Recommendations
-                - [Action 1: Immediate operational step based on Insight 1]
-                - [Action 2: Long-term strategic adjustment based on Insight 2]
-
-                """
+                - [Analyze specific trends or outliers found in the data peek and ML results]
                 
+                ### Strategic Recommendations
+                - [Actionable steps based on the findings]
+                """
+
                 response = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=[
-                        {"role": "system", "content": f"You are a Senior {domain} Consultant."},
+                        {"role": "system", "content": f"You are a Senior {domain} Consultant specializing in data-driven reporting."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.1,
-                    top_p=0.9
+                    temperature=0.1
                 )
                 answer = response.choices[0].message.content
 
@@ -178,4 +211,4 @@ if uploaded_file and selected_use_case != "Select a use case":
     except Exception as e:
         st.error(f"❌ Error: {e}")
 else:
-    st.info(f"👈 Please upload a {domain} CSV file and select a use case to begin.")
+    st.info(f"👈 Please upload a {domain} file to begin.")
