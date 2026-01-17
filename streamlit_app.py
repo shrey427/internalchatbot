@@ -5,6 +5,7 @@ from pandas.errors import EmptyDataError
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+import re
 
 # Import ML models
 from ml_models.sales_models import (
@@ -104,6 +105,28 @@ use_cases = {
 
 selected_use_case = st.sidebar.selectbox(f"Select {domain} Use Case", use_cases[domain])
 
+# --- Integrated Reset Logic ---
+
+# Initialize state trackers if they don't exist
+if "current_domain" not in st.session_state:
+    st.session_state.current_domain = domain
+if "current_use_case" not in st.session_state:
+    st.session_state.current_use_case = selected_use_case
+
+# AUTO-CLEAR: Detect if Department or Use Case has changed
+if (st.session_state.current_domain != domain or 
+    st.session_state.current_use_case != selected_use_case):
+    
+    st.session_state.chat_history = []  # Wipe the chat
+    st.session_state.current_domain = domain  # Update trackers
+    st.session_state.current_use_case = selected_use_case
+    st.rerun()  # Refresh UI to show clean slate
+
+# MANUAL CLEAR: Button in Sidebar
+if st.sidebar.button("🗑️ Clear Chat History"):
+    st.session_state.chat_history = []
+    st.rerun()
+
 # -------------------------------
 # Main UI
 # -------------------------------
@@ -202,13 +225,24 @@ if uploaded_file:
                     ],
                     temperature=0.1
                 )
-                answer = response.choices[0].message.content
+                
+            # Use Regex to remove everything between <tool_call> and <tool_call> tags
+            raw_answer = response.choices[0].message.content
+            
+            def extract_business_output(text: str) -> str:
+                markers = ["Business Insights", "Strategic Recommendations"]
 
+                for marker in markers:
+                    if marker in text:
+                        return text[text.index(marker):].strip()
+
+                return text  # fallback 
+            
+            answer =  extract_business_output(raw_answer)
             with st.chat_message("assistant"):
                 st.markdown(answer)
-            st.session_state.chat_history.append(("assistant", answer))
-
+            st.session_state.chat_history.append(("assistant",answer))
     except Exception as e:
         st.error(f"❌ Error: {e}")
 else:
-    st.info(f"👈 Please upload a {domain} file to begin.")
+    st.info(f"👈 Please upload a file to begin.")
