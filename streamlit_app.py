@@ -32,11 +32,11 @@ if not HF_TOKEN:
     st.stop()
 
 client = OpenAI(
-    base_url="https://router.huggingface.co/v1",
+    base_url="https://openrouter.ai/api/v1",
     api_key=HF_TOKEN,
 )
 
-MODEL_NAME = "deepseek-ai/DeepSeek-R1:sambanova"
+MODEL_NAME = "meta-llama/llama-3.3-70b-instruct:free"
 
 # -------------------------------
 # Page Configuration
@@ -252,7 +252,7 @@ if uploaded_file:
                         {"role": "system", "content": f"You are a Senior {domain} Consultant specializing in data-driven reporting."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.1
+                    temperature=0.3
                 )
                 
             
