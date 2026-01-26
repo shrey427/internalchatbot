@@ -1,19 +1,50 @@
-# 💬 Chatbot template
+📊 Conversational Business Intelligence Platform (ML + LLM)
+📌 Overview
 
-A simple Streamlit app that shows how to build a chatbot using OpenAI's GPT-3.5.
+This project is a Conversational Business Intelligence (BI) application built using Streamlit, Machine Learning, and Large Language Models (LLMs).
+It allows users to upload structured business datasets (Sales, Finance, HR, Customer/E-commerce) and interact with the data using natural language queries.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chatbot-template.streamlit.app/)
+The system combines traditional machine learning models for data analysis with LLM-based reasoning to generate actionable insights and business recommendations.
 
-### How to run it on your own machine
+🎯 Key Objectives
 
-1. Install the requirements
+Enable non-technical users to explore business data conversationally
 
-   ```
-   $ pip install -r requirements.txt
-   ```
+Perform data-driven analysis using ML models
 
-2. Run the app
+Use LLMs to interpret results, not replace computation
 
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+Deliver executive-level insights in a clean, structured format
+
+🤖 Technologies Used
+Frontend & App Framework
+
+Streamlit – Interactive UI and dashboards
+
+Data Processing
+
+Pandas
+
+NumPy
+
+Machine Learning
+
+Scikit-learn
+
+Random Forest (Sales forecasting)
+
+Isolation Forest (Financial anomaly detection)
+
+Logistic Regression (HR attrition analysis)
+
+K-Means / RFM (Customer segmentation)
+
+Large Language Models (via API)
+
+OpenRouter / Hugging Face Router
+
+Supported models:
+
+DeepSeek-R1
+
+LLaMA 3.x (Instruct)
