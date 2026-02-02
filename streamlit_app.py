@@ -36,7 +36,7 @@ client = OpenAI(
     api_key=HF_TOKEN,
 )
 
-MODEL_NAME = "meta-llama/llama-3.3-70b-instruct:free"
+MODEL_NAME = "arcee-ai/trinity-large-preview:free"
 
 # -------------------------------
 # Page Configuration
